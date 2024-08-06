@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Scanner</title>
+    <style>
+        .result {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .result h3 {
+            margin-top: 0;
+        }
+        .result p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Web Scanner</h1>
+    <form id="webScannerForm">
+        <label for="url">Enter URL:</label>
+        <input type="text" id="url" name="url" required>
+        <button type="button" onclick="scan()">Scan</button>
+    </form>
+    <div id="results"></div>
+
+    <script>
+        function scan() {
+            var url = document.getElementById('url').value;
+            fetch('/scan?url=' + encodeURIComponent(url))
+                .then(response => response.json())
+                .then(data => {
+                    var resultsDiv = document.getElementById('results');
+                    resultsDiv.innerHTML = ''; // Clear previous results
+
+                    for (var key in data) {
+                        var result = data[key];
+                        var resultDiv = document.createElement('div');
+                        resultDiv.classList.add('result');
+
+                        var header = document.createElement('h3');
+                        header.textContent = key;
+                        resultDiv.appendChild(header);
+
+                        if (typeof result === 'object') {
+                            for (var subKey in result) {
+                                var p = document.createElement('p');
+                                p.textContent = subKey + ': ' + result[subKey];
+                                resultDiv.appendChild(p);
+                            }
+                        } else {
+                            var p = document.createElement('p');
+                            p.textContent = result;
+                            resultDiv.appendChild(p);
+                        }
+
+                        resultsDiv.appendChild(resultDiv);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+    </script>
+</body>
+</html>

@@ -1,113 +1,86 @@
-import random
-MAX_LINES=3
-MAX_BET=100
-MIN_BET=1 
-ROWS=3
-COLS=3
-symbol_count={
-    "A": 5,
-    "B": 4,
-    "C": 3,
-    "D": 2,
+from flask import Flask, request, jsonify
+import requests
+import re  # For regular expressions
 
-}
-def check_winnings(columns,lines,bet,values):
-    winnings=0
-    winnings_lines=[]
-    for line in range(lines):
-        symbol=columns[0][line]
-        for column in columns:
-            symbol_to_check=column[line]
-            if symbol!=symbol_to_check:
-                break
-        else:
-            winnings+=values[symbol]*bet
-            winnings_lines.append(line+1)
-    return winnings,winnings_lines
-def get_slot_machine_spin(rows,cols,symbols):
-    all_symbols= []
-    for symbol, symbol_count in symbols.items():
-        for _ in range(symbol_count):
-            all_symbols.append(symbol)
+app = Flask(__name__)
 
-    columns=[]  
-    for _ in range(cols):
-        column=[]
-        current_symbols=all_symbols[:]
-        for _ in range(rows):
-            value=random.choice(current_symbols)
-            current_symbols.remove(value)
-            column.append(value)
-        columns.append(column)
-    return columns
-def print_slot_machine(columns):
-    for row in range(len(columns[0])):
-        for i, column in enumerate(columns):
-            if i!=len(columns)-1:
-                print(column[row],end=" | ")
-            else:
-                print(column[row],end="")
-        print()
-def deposit():
-    while True:
-        amount=input("What would you like to deposit $")
-        if  amount.isdigit():
-            amount=int(amount)
-            if amount>0:
-                break
-            else:
-                print("Amount must be greater than 0.")
-        else:
-            print("Warning enter a number")
-    return amount
-def get_number_of_lines():
-    while True:
-        lines=input("Enter the no of lines to bet on(1-" + str(MAX_LINES) + ")? ")
-        if  lines.isdigit():
-            lines=int(lines)
-            if 1<=lines<=MAX_LINES:
-                break
-            else:
-                print("Enter a valid number of lines.")
-        else:
-            print("Warning enter a number.")
-    return lines
-def get_bet():
-    while True:
-        amount=input("What would you like to bet on each line? $")
-        if  amount.isdigit():
-            amount=int(amount)
-            if MIN_BET<=amount<=MAX_BET:
-                break
-            else:
-                print(f"Amount must be between ${MIN_BET} - ${MAX_BET}.")
-        else:
-            print("Warning enter a number .")
-    return amount
-def spin(balance):
-    lines=get_number_of_lines()
-    while True:
+def send_request(url):
+    try:
+        response = requests.get(url)
+        return response
+    except requests.exceptions.RequestException as e:
+        return str(e)
 
-        bet=get_bet()
-        total_bet=bet*lines
-        if total_bet>balance:
-            print(f"insufficient fund")
+def analyze_response_headers(response):
+    headers = response.headers
+    server_header = headers.get('Server', "No Server header found")
+    xpoweredby_header = headers.get('X-Powered-By', "No X-Powered-By header found")
+    hsts_enabled = "HTTP Strict Transport Security (HSTS) is enabled" if 'Strict-Transport-Security' in headers else "HSTS is not enabled"
+
+    # Advanced Techniques:
+    x_frame_options = headers.get('X-Frame-Options', "No X-Frame-Options header found")
+    x_xss_protection = headers.get('X-XSS-Protection', "No X-XSS-Protection header found")
+    server_signature = re.search(r'[\(](.*?)[\)]', server_header)  # Extract server signature (if present)
+
+    return {
+        'Server': server_header,
+        'X-Powered-By': xpoweredby_header,
+        'HSTS': hsts_enabled,
+        'X-Frame-Options': x_frame_options,
+        'X-XSS-Protection': x_xss_protection,
+        'Server Signature': server_signature.group(1) if server_signature else "None"  # Extract signature from regex match
+    }
+
+def analyze_response_code(response):
+    status_code = response.status_code
+    if status_code == 200:
+        return "Server is likely Apache or IIS (common for success)"
+    elif status_code == 403:
+        return "Server is likely running a web application firewall (WAF)"
+    elif status_code == 500:
+        return "Server is likely running a vulnerable version of the web application"
+    elif status_code == 301 or status_code == 302:
+        return f"Server is performing a redirect to {response.headers.get('Location', 'Unknown location')}"
+    else:
+        return f"Unknown server response code: {status_code}"
+
+def analyze_cookies(response):
+    cookies = response.cookies
+    if cookies:
+        return [cookie.name for cookie in cookies]
+    else:
+        return []
+
+def analyze_page_content(response):
+    content_type = response.headers.get('Content-Type')
+    if content_type and 'text/html' in content_type:
+        page_content = response.text
+        if 'WordPress' in page_content:
+            return "Server is likely running WordPress"
+        elif 'Drupal' in page_content:
+            return "Server is likely running Drupal"
         else:
-            break
-    print(f"You are betting ${bet} on {lines} lines.Total bet is equal to:{total_bet}")
-    slots=get_slot_machine_spin(ROWS,COLS,symbol_count)
-    print_slot_machine(slots)
-    winnings,winning_lines=check_winnings(slots,lines,bet,symbol_count)
-    print(f"You won ${winnings}.")
-    print(f"You Won on lines:",*winning_lines)
-    return winnings-total_bet
-def main():
-    balance=deposit()
-    while True:
-        print(f"Current balance is ${balance}")
-        answer=input("Press nter to spin (q to quit).")
-        if spin=="q":
-            break
-        balance+=spin(balance)
-    print(f"yopu left with${balance}")
-main()
+            return "Page content does not reveal server information"
+    else:
+        return "Page content is not HTML"
+
+@app.route('/scan', methods=['GET'])
+def scan():
+    url = request.args.get('url')
+    response = send_request(url)
+    if isinstance(response, str):
+        return jsonify({'error': response}), 500
+    headers_result = analyze_response_headers(response)
+    code_result = analyze_response_code(response)
+    cookies_result = analyze_cookies(response)
+    page_content_result = analyze_page_content(response)
+
+    return jsonify({
+        'Headers': headers_result,
+        'Response Code': code_result,
+        'Cookies': cookies_result,
+        'Page Content': page_content_result
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True)
